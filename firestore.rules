@@ -1,0 +1,315 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny all unlisted paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // User Profile Validation
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'name', 'role', 'avatarColor']) &&
+        data.keys().hasOnly(['id', 'name', 'role', 'grade', 'avatarColor', 'email', 'photoURL', 'bio', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() <= 128 && data.id == request.auth.uid &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.role in ['student', 'teacher', 'parent'] &&
+        data.avatarColor is string && data.avatarColor.size() <= 100 &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 200)) &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000000)) &&
+        (!('bio' in data) || (data.bio is string && data.bio.size() <= 1000)) &&
+        (!('grade' in data) || (data.grade is string && data.grade.size() <= 100)) &&
+        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
+    }
+
+    // Document Validation
+    function isValidDocument(data) {
+      return data.keys().hasAll(['id', 'title', 'subject', 'docType', 'grade', 'term', 'author', 'userId', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'title', 'subject', 'customSubjectName', 'docType', 'format', 'grade', 'term', 'author', 'description', 'userId', 'averageRating', 'ratingsCount', 'comments', 'bookmarks', 'tags', 'pageCount', 'coverImageUrl', 'annotationsJson', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        data.subject is string && data.subject.size() <= 50 &&
+        data.docType is string && data.docType.size() <= 50 &&
+        data.grade is string && data.grade.size() <= 100 &&
+        data.term is string && data.term.size() <= 50 &&
+        data.author is string && data.author.size() <= 100 &&
+        data.userId is string && data.userId.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 50 &&
+        data.updatedAt is string && data.updatedAt.size() <= 50 &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+        (!('customSubjectName' in data) || (data.customSubjectName is string && data.customSubjectName.size() <= 100)) &&
+        (!('format' in data) || (data.format is string && data.format.size() <= 50)) &&
+        (!('averageRating' in data) || (data.averageRating is number)) &&
+        (!('ratingsCount' in data) || (data.ratingsCount is number)) &&
+        (!('pageCount' in data) || (data.pageCount is number)) &&
+        (!('coverImageUrl' in data) || (data.coverImageUrl is string && data.coverImageUrl.size() <= 250000)) &&
+        (!('annotationsJson' in data) || (data.annotationsJson is string && data.annotationsJson.size() <= 350000)) &&
+        (!('bookmarks' in data) || (data.bookmarks is list && data.bookmarks.size() <= 500 && (data.bookmarks.size() == 0 || data.bookmarks[0] is number))) &&
+        (!('tags' in data) || (data.tags is list && data.tags.size() <= 20 && (data.tags.size() == 0 || data.tags[0] is string))) &&
+        (!('comments' in data) || (data.comments is list && data.comments.size() <= 20 && (data.comments.size() == 0 || data.comments[0] is map)));
+    }
+
+    // Document Page Validation (Cross-device original page image & annotations)
+    function isValidDocumentPage(data, documentId) {
+      return data.keys().hasAll(['id', 'docId', 'userId', 'pageNumber', 'imageUrl', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'docId', 'userId', 'pageNumber', 'imageUrl', 'annotationsJson', 'updatedAt']) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+        data.docId is string && data.docId == documentId &&
+        data.userId is string && data.userId.size() <= 128 &&
+        data.pageNumber is number && data.pageNumber >= 1 && data.pageNumber <= 5000 &&
+        data.imageUrl is string && data.imageUrl.size() <= 750000 &&
+        (!('annotationsJson' in data) || (data.annotationsJson is string && data.annotationsJson.size() <= 150000)) &&
+        data.updatedAt is string && data.updatedAt.size() <= 50;
+    }
+
+    // Video Validation
+    function isValidVideo(data) {
+      return data.keys().hasAll(['id', 'userId', 'author', 'title', 'type', 'durationSeconds', 'subject', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'author', 'authorPhoto', 'title', 'description', 'type', 'durationSeconds', 'videoUrl', 'thumbnailUrl', 'subject', 'grade', 'likesCount', 'sharesCount', 'commentsCount', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && data.userId.size() <= 128 &&
+        data.author is string && data.author.size() > 0 && data.author.size() <= 100 &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        data.type in ['shorts', 'lesson'] &&
+        data.durationSeconds is number && data.durationSeconds >= 0 &&
+        data.subject is string && data.subject.size() <= 50 &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+        (!('authorPhoto' in data) || (data.authorPhoto is string && data.authorPhoto.size() <= 200000)) &&
+        (!('videoUrl' in data) || (data.videoUrl is string && data.videoUrl.size() <= 300000)) &&
+        (!('thumbnailUrl' in data) || (data.thumbnailUrl is string && data.thumbnailUrl.size() <= 200000)) &&
+        (!('grade' in data) || (data.grade is string && data.grade.size() <= 100)) &&
+        (!('likesCount' in data) || (data.likesCount is number)) &&
+        (!('sharesCount' in data) || (data.sharesCount is number)) &&
+        (!('commentsCount' in data) || (data.commentsCount is number)) &&
+        data.createdAt is string && data.createdAt.size() <= 50 &&
+        data.updatedAt is string && data.updatedAt.size() <= 50;
+    }
+
+    // Quiz Validation
+    function isValidQuiz(data) {
+      return data.keys().hasAll(['id', 'userId', 'author', 'title', 'durationMode', 'totalQuestions', 'questionsJson', 'subject', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'author', 'title', 'grade', 'durationMode', 'expireDate', 'totalQuestions', 'questionsJson', 'subject', 'attemptsCount', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && data.userId.size() <= 128 &&
+        data.author is string && data.author.size() > 0 && data.author.size() <= 100 &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        data.durationMode in ['always', 'temporary', 'timed'] &&
+        data.totalQuestions is number && data.totalQuestions >= 0 &&
+        data.questionsJson is string && data.questionsJson.size() <= 300000 &&
+        data.subject is string && data.subject.size() <= 50 &&
+        (!('grade' in data) || (data.grade is string && data.grade.size() <= 100)) &&
+        (!('expireDate' in data) || (data.expireDate is string && data.expireDate.size() <= 50)) &&
+        (!('attemptsCount' in data) || (data.attemptsCount is number)) &&
+        data.createdAt is string && data.createdAt.size() <= 50 &&
+        data.updatedAt is string && data.updatedAt.size() <= 50;
+    }
+
+    // Weekly Study Progress Validation
+    function isValidProgress(data, userId) {
+      return data.keys().hasAll(['userId', 'weeklyGoalHours', 'dailyProgressJson', 'subjectProgressJson', 'subjectSessionsJson', 'lastUpdated']) &&
+        data.keys().hasOnly(['userId', 'weeklyGoalHours', 'dailyProgressJson', 'subjectProgressJson', 'subjectSessionsJson', 'lastUpdated']) &&
+        data.userId is string && data.userId == userId &&
+        data.weeklyGoalHours is number && data.weeklyGoalHours > 0 &&
+        data.dailyProgressJson is string && data.dailyProgressJson.size() <= 10000 &&
+        data.subjectProgressJson is string && data.subjectProgressJson.size() <= 10000 &&
+        data.subjectSessionsJson is string && data.subjectSessionsJson.size() <= 10000 &&
+        data.lastUpdated is string && data.lastUpdated.size() <= 50;
+    }
+
+    // Reminder Validation
+    function isValidReminder(data) {
+      return data.keys().hasAll(['id', 'userId', 'subjectId', 'title', 'targetDate', 'targetTime', 'repeatType', 'priority', 'isActive', 'isCompleted', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'subjectId', 'customSubjectName', 'title', 'targetDate', 'targetTime', 'repeatType', 'priority', 'isActive', 'isCompleted', 'notes', 'linkedDocId', 'linkedDocTitle', 'createdAt']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.subjectId is string && data.subjectId.size() <= 50 &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        data.targetDate is string && data.targetDate.size() <= 20 &&
+        data.targetTime is string && data.targetTime.size() <= 10 &&
+        data.repeatType in ['once', 'daily', 'weekdays', 'custom'] &&
+        data.priority in ['normal', 'medium', 'high'] &&
+        data.isActive is bool &&
+        data.isCompleted is bool &&
+        data.createdAt is string && data.createdAt.size() <= 50 &&
+        (!('customSubjectName' in data) || (data.customSubjectName is string && data.customSubjectName.size() <= 100)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+        (!('linkedDocId' in data) || (data.linkedDocId is string && data.linkedDocId.size() <= 128)) &&
+        (!('linkedDocTitle' in data) || (data.linkedDocTitle is string && data.linkedDocTitle.size() <= 200));
+    }
+
+    // Quick Note Validation
+    function isValidNote(data) {
+      return data.keys().hasAll(['id', 'userId', 'docId', 'content', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'docId', 'content', 'pageNumber', 'color', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.docId is string && data.docId.size() <= 128 &&
+        data.content is string && data.content.size() > 0 && data.content.size() <= 5000 &&
+        (!('pageNumber' in data) || (data.pageNumber is number)) &&
+        (!('color' in data) || (data.color is string && data.color.size() <= 30)) &&
+        data.createdAt is string && data.createdAt.size() <= 50 &&
+        data.updatedAt is string && data.updatedAt.size() <= 50;
+    }
+
+    // Interactive Comment Validation
+    function isValidComment(data) {
+      return data.keys().hasAll(['id', 'targetId', 'targetType', 'userId', 'userName', 'content', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'targetId', 'targetType', 'userId', 'userName', 'userPhotoURL', 'role', 'content', 'likesCount', 'createdAt']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.targetId is string && data.targetId.size() <= 128 &&
+        data.targetType in ['video', 'document'] &&
+        data.userId is string && data.userId.size() <= 128 &&
+        data.userName is string && data.userName.size() > 0 && data.userName.size() <= 100 &&
+        data.content is string && data.content.size() > 0 && data.content.size() <= 2000 &&
+        (!('userPhotoURL' in data) || (data.userPhotoURL is string && data.userPhotoURL.size() <= 1000000)) &&
+        (!('role' in data) || (data.role in ['student', 'teacher', 'parent'])) &&
+        (!('likesCount' in data) || (data.likesCount is number)) &&
+        data.createdAt is string && data.createdAt.size() <= 50;
+    }
+
+    // Rules for Users collection
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false; // Blanket user listing forbidden for privacy
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) &&
+        incoming().id == existing().id &&
+        (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt);
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // Student Quick Text Notes per document
+      match /notes/{noteId} {
+        allow get: if isOwner(userId) && isValidId(noteId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(noteId) && isValidNote(incoming()) && incoming().userId == userId;
+        allow update: if isOwner(userId) && isValidId(noteId) && isValidNote(incoming()) && incoming().userId == userId && incoming().createdAt == existing().createdAt;
+        allow delete: if isOwner(userId) && isValidId(noteId);
+      }
+
+      // User Weekly Study Progress & Analytics
+      match /progress/{progressId} {
+        allow get: if isOwner(userId) && isValidId(progressId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(progressId) && isValidProgress(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(progressId) && isValidProgress(incoming(), userId);
+        allow delete: if isOwner(userId) && isValidId(progressId);
+      }
+    }
+
+    // Rules for Documents collection
+    match /documents/{documentId} {
+      allow get: if isValidId(documentId);
+      allow list: if true; // Public educational library browsing
+      allow create: if isSignedIn() && isValidId(documentId) && isValidDocument(incoming()) &&
+        incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(documentId) && isValidDocument(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt && (
+          existing().userId == request.auth.uid ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['averageRating', 'ratingsCount', 'comments', 'updatedAt'])
+        );
+      allow delete: if isSignedIn() && isValidId(documentId) && existing().userId == request.auth.uid;
+
+      // Subcollection for original page images (keeps each doc well under Firestore 1MB limit)
+      match /pages/{pageId} {
+        allow get: if isValidId(documentId) && isValidId(pageId);
+        allow list: if isValidId(documentId);
+        allow create: if isSignedIn() && isValidId(documentId) && isValidId(pageId) &&
+          isValidDocumentPage(incoming(), documentId) &&
+          incoming().userId == request.auth.uid &&
+          get(/databases/$(database)/documents/documents/$(documentId)).data.userId == request.auth.uid;
+        allow update: if isSignedIn() && isValidId(documentId) && isValidId(pageId) &&
+          isValidDocumentPage(incoming(), documentId) &&
+          incoming().userId == existing().userId &&
+          existing().userId == request.auth.uid &&
+          get(/databases/$(database)/documents/documents/$(documentId)).data.userId == request.auth.uid;
+        allow delete: if isSignedIn() && isValidId(documentId) && isValidId(pageId) &&
+          existing().userId == request.auth.uid;
+      }
+    }
+
+    // Rules for Videos collection (Shorts & Lessons)
+    match /videos/{videoId} {
+      allow get: if isValidId(videoId);
+      allow list: if true; // Public educational videos browsing
+      allow create: if isSignedIn() && isValidId(videoId) && isValidVideo(incoming()) &&
+        incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(videoId) && isValidVideo(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt && (
+          existing().userId == request.auth.uid ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'sharesCount', 'commentsCount', 'updatedAt'])
+        );
+      allow delete: if isSignedIn() && isValidId(videoId) && existing().userId == request.auth.uid;
+    }
+
+    // Rules for Quizzes collection
+    match /quizzes/{quizId} {
+      allow get: if isValidId(quizId);
+      allow list: if true; // Public interactive quizzes browsing
+      allow create: if isSignedIn() && isValidId(quizId) && isValidQuiz(incoming()) &&
+        incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(quizId) && isValidQuiz(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt && (
+          existing().userId == request.auth.uid ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['attemptsCount', 'updatedAt'])
+        );
+      allow delete: if isSignedIn() && isValidId(quizId) && existing().userId == request.auth.uid;
+    }
+
+    // Rules for Reminders collection
+    match /reminders/{reminderId} {
+      allow get: if isSignedIn() && isValidId(reminderId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(reminderId) && isValidReminder(incoming());
+      allow update: if isSignedIn() && isValidId(reminderId) && isValidReminder(incoming()) &&
+        existing().userId == request.auth.uid &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt;
+      allow delete: if isSignedIn() && isValidId(reminderId) && existing().userId == request.auth.uid;
+    }
+
+    // Rules for Comments collection (Interactive student inquiries on videos and documents)
+    match /comments/{commentId} {
+      allow get: if isValidId(commentId);
+      allow list: if true; // Public educational inquiries and questions reading
+      allow create: if isSignedIn() && isValidId(commentId) && isValidComment(incoming()) &&
+        incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(commentId) && isValidComment(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt && (
+          existing().userId == request.auth.uid ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['likesCount'])
+        );
+      allow delete: if isSignedIn() && isValidId(commentId) && existing().userId == request.auth.uid;
+    }
+
+    // Test connection doc for initial boot check
+    match /test/{docId} {
+      allow get: if isValidId(docId);
+    }
+  }
+}
